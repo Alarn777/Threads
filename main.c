@@ -8,11 +8,11 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <string.h>
-
+#define MSGSIZE 512
+#define BUFFSIZE 256
 void *run_p(void *arguments){
     int i,default_stdout,default_stderr;
-//    int out = open("out.txt", O_RDWR | O_APPEND);
-    char temp[256],temp2[256],temp3[256];
+    char temp[BUFFSIZE],temp2[BUFFSIZE],temp3[BUFFSIZE];
     char *cptr = (char *)(arguments);
     for (i = 0; cptr[i] != ' ' && cptr[i] != '\0' ; ++i) {
         temp[i] = cptr[i];
@@ -26,35 +26,38 @@ void *run_p(void *arguments){
     for (j =0; cptr[i] != ' ' && cptr[i] != '\0' ; ++i,j++) {
         temp3[j] = cptr[i];
     }
-    int fd;
-//    default_stdout = STDOUT_FILENO;
-//    default_stderr = STDERR_FILENO;
-    //    temp3,'.','t','x','t'
-    char filename[128] = {'o','u','t'};
+    int fd,my_pipe[2];                                                                 //pipe implementation
+    if (pipe(my_pipe) < 0) {
+        printf("Pipe creation error!\n");
+        exit(1);
+    }
+    char filename[BUFFSIZE/2] = {'o','u','t'};
     strcat(filename, temp3);
     strcat(filename, ".txt");
     strcat(filename, "\0");
     int saved_stdout = dup(STDOUT_FILENO);
-    if((fd = open(filename, O_RDWR | O_CREAT |O_APPEND , S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR))==-1){ /*open the file */
-        perror("File open error");
-        return arguments;    //exit
-    }
     char *const args[] = {temp,temp2 , NULL };
-    int childId = -1;
-    if ((childId =fork()) == 0) {
-        dup2(fd, STDOUT_FILENO);
-        close(fd);
-        execvp(args[0], args);
-        dup2(saved_stdout, STDOUT_FILENO);
+    int childProsess = -1;
 
-//        dup2(default_stdout, 1);
-//        close(default_stdout);
+    if ((childProsess =fork()) == 0) {
+        close(my_pipe[0]);
+        dup2(my_pipe[1], STDOUT_FILENO);
+        close(my_pipe[1]);
+        execvp(args[0], args);
+        exit(1);
     }
     else {
-        wait(&childId);
-//        dup2(fd, STDOUT_FILENO);
-//        dup2(fd, STDERR_FILENO);
-//        close(fd);
+        char pipe_buffer[MSGSIZE];
+        close(my_pipe[1]);
+        if((fd = open(filename, O_RDWR | O_CREAT |O_APPEND , S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR))== -1){ /*open the file */
+            perror("File open error");
+            return arguments;    //exit
+        }
+        ssize_t numbers;
+        while ((numbers = read(my_pipe[0], pipe_buffer, sizeof(pipe_buffer))) != 0) {
+            write(fd, pipe_buffer, (size_t)(numbers));
+        }
+        wait(&childProsess);
         return NULL;
     }
     return NULL;
@@ -75,7 +78,6 @@ int main (int argc, const char* argv[]) {
         int k = 0;
         char temp_buff[512] = {};
         for (;buffer[i] != '\n' && buffer[i] != '\0';i++,k++)
-//            temp_buff[k] = buffer[i];
             buffer_thread[prosessNum][k] = buffer[i];
         k++;
 
@@ -84,10 +86,6 @@ int main (int argc, const char* argv[]) {
         strcat(buffer_thread[prosessNum], number);
         strcat(buffer_thread[prosessNum], "\0");
         prosessNum++;
-        //do shit here
-//        char buffer_thread[10][512] = {};
-//        strcpy(buffer_threads.buffer0,temp_buff);
-//        strcpy(temp_buff,buffer[prosessNum]);
         if (pthread_create(&my_thread[threadNum], NULL, run_p, buffer_thread[prosessNum-1]))
             return 1;
         else
